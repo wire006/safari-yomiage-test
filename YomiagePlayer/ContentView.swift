@@ -134,7 +134,7 @@ struct ContentView: View {
         }
     }
 
-    /// 音声の表示名（名前・言語・品質）。
+    /// 音声の表示名（名前・品質、Siri音声なら「Siri」表示）。
     private func voiceLabel(_ voice: AVSpeechSynthesisVoice) -> String {
         let quality: String
         switch voice.quality {
@@ -142,7 +142,8 @@ struct ContentView: View {
         case .enhanced: quality = "高品質"
         default:        quality = "標準"
         }
-        return "\(voice.name)（\(voice.language)・\(quality)）"
+        let siri = voice.identifier.lowercased().contains("siri") ? "・Siri" : ""
+        return "\(voice.name)（\(quality)\(siri)）"
     }
 
     private func timeString(_ seconds: Double) -> String {

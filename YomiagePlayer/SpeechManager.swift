@@ -69,29 +69,26 @@ final class SpeechManager: NSObject, ObservableObject {
 
     // MARK: - 音声（ボイス）
 
-    /// 端末にある音声を読み込む。日本語・高品質を上位に並べ、未選択なら最良の日本語音声を既定にする。
+    /// 端末にある音声のうち**日本語のみ**を読み込む（日本語の Siri 音声も含まれる）。
+    /// 高品質なものを上位に並べ、未選択／選択が無効なら最良の日本語音声を既定にする。
     func loadVoices() {
-        let all = AVSpeechSynthesisVoice.speechVoices()
-        availableVoices = all.sorted { a, b in
-            let aJa = a.language.hasPrefix("ja")
-            let bJa = b.language.hasPrefix("ja")
-            if aJa != bJa { return aJa }                       // 日本語を先頭へ
-            if a.language != b.language { return a.language < b.language }
-            if a.quality.rawValue != b.quality.rawValue {
-                return a.quality.rawValue > b.quality.rawValue  // 高品質を先に
-            }
-            return a.name < b.name
-        }
-        if selectedVoiceIdentifier == nil {
-            selectedVoiceIdentifier = bestJapaneseVoice()?.identifier
-        }
-    }
-
-    /// 日本語で最も高品質な音声を返す（Premium > Enhanced > Default）。
-    private func bestJapaneseVoice() -> AVSpeechSynthesisVoice? {
-        availableVoices
+        let japanese = AVSpeechSynthesisVoice.speechVoices()
             .filter { $0.language.hasPrefix("ja") }
-            .max(by: { $0.quality.rawValue < $1.quality.rawValue })
+            .sorted { a, b in
+                if a.quality.rawValue != b.quality.rawValue {
+                    return a.quality.rawValue > b.quality.rawValue  // 高品質を先に
+                }
+                return a.name < b.name
+            }
+        availableVoices = japanese
+
+        // 選択が未設定、または一覧に無い識別子なら、最良（先頭）の音声を既定にする。
+        let isValid = selectedVoiceIdentifier.map { id in
+            japanese.contains { $0.identifier == id }
+        } ?? false
+        if !isValid {
+            selectedVoiceIdentifier = japanese.first?.identifier
+        }
     }
 
     /// 再生中に音声を切り替えたとき、現在位置で読み直して新しい音声を反映する。
