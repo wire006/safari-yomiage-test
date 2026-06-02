@@ -40,8 +40,9 @@ final class SpeechManager: NSObject, ObservableObject {
     private var currentUtteranceBaseOffset = 0
     /// これまでに読み上げた位置（テキスト全体での UTF-16 オフセット）。
     private var spokenGlobalOffset = 0
-    /// stop 後に指定位置から再開するためのフラグ。
-    private var resumeOffsetAfterCancel: Int?
+    /// stop 後の処理を決める保留値。
+    /// nil = 保留なし（自然終了として次の文へ）, -1 = 停止のみ, 0以上 = その位置から再開。
+    private var pendingRestartOffset: Int?
 
     /// 1文字あたりの想定秒数。Now Playing の擬似的な総時間・経過時間に使う。
     private let secondsPerChar: Double = 0.13
@@ -65,8 +66,10 @@ final class SpeechManager: NSObject, ObservableObject {
     /// 読み上げるテキストを設定する。
     func load(text: String) {
         // 進行中の読み上げがあれば止める。
-        resumeOffsetAfterCancel = nil
+        pendingRestartOffset = nil
         if synthesizer.isSpeaking || synthesizer.isPaused {
+            // 停止コールバックで次の文へ進んでしまわないよう「停止のみ」を指示。
+            pendingRestartOffset = -1
             synthesizer.stopSpeaking(at: .immediate)
         }
 
@@ -128,8 +131,9 @@ final class SpeechManager: NSObject, ObservableObject {
 
         let shouldResume = isPlaying
         if synthesizer.isSpeaking || synthesizer.isPaused {
-            // stop は非同期に didCancel を呼ぶので、そこで再開させる。
-            resumeOffsetAfterCancel = shouldResume ? target : nil
+            // stop は非同期に didCancel または didFinish を呼ぶ。
+            // どちらが呼ばれても確実にシーク先から再開できるよう保留値で制御する。
+            pendingRestartOffset = shouldResume ? target : -1
             synthesizer.stopSpeaking(at: .immediate)
         } else if shouldResume {
             beginSpeaking(fromGlobalOffset: target)
@@ -290,9 +294,12 @@ extension SpeechManager: AVSpeechSynthesizerDelegate {
         updateNowPlaying()
     }
 
-    /// 1文を読み終えたら次の文へ。
+    /// 発話が終了したとき（自然終了）に呼ばれる。
+    /// stop による中断でも環境によってはこちらが呼ばれるため、保留値を最優先で処理する。
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,
                            didFinish utterance: AVSpeechUtterance) {
+        if consumePendingRestart() { return }
+        // 自然終了 → 次の文へ。
         let next = currentSentenceIndex + 1
         if next < sentences.count {
             currentSentenceIndex = next
@@ -302,12 +309,23 @@ extension SpeechManager: AVSpeechSynthesizerDelegate {
         }
     }
 
-    /// stop（シーク・読み込み直し）でキャンセルされた場合。指定位置から再開する。
+    /// stop（シーク・読み込み直し）でキャンセルされたとき。
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,
                            didCancel utterance: AVSpeechUtterance) {
-        if let offset = resumeOffsetAfterCancel {
-            resumeOffsetAfterCancel = nil
-            beginSpeaking(fromGlobalOffset: offset)
+        consumePendingRestart()
+    }
+
+    /// 保留中の停止／再開要求を処理する。処理したら true を返す。
+    /// stopSpeaking 直後に speak すると無視されることがあるため、次のループで再開する。
+    @discardableResult
+    private func consumePendingRestart() -> Bool {
+        guard let pending = pendingRestartOffset else { return false }
+        pendingRestartOffset = nil
+        if pending >= 0 {
+            DispatchQueue.main.async { [weak self] in
+                self?.beginSpeaking(fromGlobalOffset: pending)
+            }
         }
+        return true
     }
 }
