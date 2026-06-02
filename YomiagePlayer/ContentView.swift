@@ -16,14 +16,16 @@ struct ContentView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 16) {
-                TextEditor(text: $inputText)
-                    .font(.body)
-                    .frame(minHeight: 160)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.secondary.opacity(0.3))
-                    )
+            ScrollView {
+                VStack(spacing: 16) {
+                    TextEditor(text: $inputText)
+                        .font(.body)
+                        .frame(height: 160)
+                        .scrollContentBackground(.hidden)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Color.secondary.opacity(0.3))
+                        )
 
                 Button {
                     speech.load(text: inputText)
@@ -113,10 +115,9 @@ struct ContentView: View {
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
-
-                Spacer()
+                }
+                .padding()
             }
-            .padding()
             .navigationTitle("読み上げプレイヤー")
             .navigationBarTitleDisplayMode(.inline)
             .onAppear {
