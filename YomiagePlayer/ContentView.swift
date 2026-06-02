@@ -36,32 +36,6 @@ struct ContentView: View {
                 }
                 .buttonStyle(.bordered)
 
-                // 音声（ボイス）選択
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Text("音声（\(speech.availableVoices.count)件）")
-                            .font(.subheadline.bold())
-                        Spacer()
-                        Picker("音声", selection: $speech.selectedVoiceIdentifier) {
-                            ForEach(speech.availableVoices, id: \.identifier) { voice in
-                                Text(voiceLabel(voice)).tag(Optional(voice.identifier))
-                            }
-                        }
-                        .pickerStyle(.menu)
-                        .onChange(of: speech.selectedVoiceIdentifier) { _ in
-                            speech.applyVoiceChange()
-                        }
-                    }
-                    Text("Safariと同じ音声にするには、設定 > アクセシビリティ > 読み上げコンテンツ > 声 で使っている音声をダウンロードしてから、ここで同じ音声を選んでください。")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-                .padding(10)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8)
-                        .stroke(Color.accentColor.opacity(0.5))
-                )
-
                 // シークバー
                 VStack(spacing: 4) {
                     Slider(
@@ -119,6 +93,32 @@ struct ContentView: View {
                         .foregroundStyle(.secondary)
                 }
                 .foregroundStyle(.secondary)
+
+                // 音声（ボイス）選択
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Text("音声（\(speech.availableVoices.count)件）")
+                            .font(.subheadline.bold())
+                        Spacer()
+                        Picker("音声", selection: $speech.selectedVoiceIdentifier) {
+                            ForEach(speech.availableVoices, id: \.identifier) { voice in
+                                Text(voiceLabel(voice)).tag(Optional(voice.identifier))
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .onChange(of: speech.selectedVoiceIdentifier) { _ in
+                            speech.applyVoiceChange()
+                        }
+                    }
+                    Text("Safariと同じ音声にするには、設定 > アクセシビリティ > 読み上げコンテンツ > 声 で使っている音声をダウンロードしてから、ここで同じ音声を選んでください。")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(10)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(Color.accentColor.opacity(0.5))
+                )
                 }
                 .padding()
             }
