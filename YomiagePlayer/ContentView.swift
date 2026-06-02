@@ -60,7 +60,7 @@ struct ContentView: View {
                 }
                 .fileImporter(
                     isPresented: $showingImporter,
-                    allowedContentTypes: [.plainText, .text, .utf8PlainText, .rtf],
+                    allowedContentTypes: importContentTypes,
                     allowsMultipleSelection: false
                 ) { result in
                     if case .success(let urls) = result, let url = urls.first {
@@ -174,28 +174,24 @@ struct ContentView: View {
         sliderValue = 0
     }
 
-    /// C: 選択したファイル（テキスト / RTF）を読み込む。
+    /// 取り込み可能なファイル形式（PDF / DOCX / テキスト / RTF）。
+    private var importContentTypes: [UTType] {
+        var types: [UTType] = [.pdf, .plainText, .text, .utf8PlainText, .rtf]
+        if let docx = UTType("org.openxmlformats.wordprocessingml.document") {
+            types.append(docx)
+        }
+        return types
+    }
+
+    /// C: 選択したファイル（PDF / DOCX / テキスト / RTF）からテキストを取り込む。
     private func loadFromFile(_ url: URL) {
         // 他アプリ由来のURLはセキュリティスコープのアクセス開始が必要。
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
 
-        var text: String?
-        if let s = try? String(contentsOf: url, encoding: .utf8) {
-            text = s
-        } else if let data = try? Data(contentsOf: url),
-                  let attr = try? NSAttributedString(
-                      data: data,
-                      options: [.documentType: NSAttributedString.DocumentType.rtf],
-                      documentAttributes: nil) {
-            text = attr.string
-        } else {
-            text = try? String(contentsOf: url)   // エンコーディング自動判定で再試行
-        }
-
-        guard let loaded = text, !loaded.isEmpty else { return }
-        inputText = loaded
-        speech.load(text: loaded)
+        guard let text = DocumentTextExtractor.text(from: url), !text.isEmpty else { return }
+        inputText = text
+        speech.load(text: text)
         sliderValue = 0
     }
 
