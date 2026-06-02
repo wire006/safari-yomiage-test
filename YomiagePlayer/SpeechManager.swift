@@ -23,6 +23,11 @@ final class SpeechManager: NSObject, ObservableObject {
     /// 読み上げ速度（AVSpeechUtterance.rate と同じ 0.0〜1.0 のスケール）。
     @Published var rate: Float = AVSpeechUtteranceDefaultSpeechRate
 
+    /// 端末で利用できる音声の一覧（日本語・高品質を優先して並べ替え済み）。
+    @Published private(set) var availableVoices: [AVSpeechSynthesisVoice] = []
+    /// 選択中の音声の識別子。nil の場合は日本語の既定音声を使う。
+    @Published var selectedVoiceIdentifier: String?
+
     // MARK: - 内部状態
 
     private let synthesizer = AVSpeechSynthesizer()
@@ -59,6 +64,50 @@ final class SpeechManager: NSObject, ObservableObject {
         synthesizer.delegate = self
         configureAudioSession()
         setupRemoteCommands()
+        loadVoices()
+    }
+
+    // MARK: - 音声（ボイス）
+
+    /// 端末にある音声を読み込む。日本語・高品質を上位に並べ、未選択なら最良の日本語音声を既定にする。
+    func loadVoices() {
+        let all = AVSpeechSynthesisVoice.speechVoices()
+        availableVoices = all.sorted { a, b in
+            let aJa = a.language.hasPrefix("ja")
+            let bJa = b.language.hasPrefix("ja")
+            if aJa != bJa { return aJa }                       // 日本語を先頭へ
+            if a.language != b.language { return a.language < b.language }
+            if a.quality.rawValue != b.quality.rawValue {
+                return a.quality.rawValue > b.quality.rawValue  // 高品質を先に
+            }
+            return a.name < b.name
+        }
+        if selectedVoiceIdentifier == nil {
+            selectedVoiceIdentifier = bestJapaneseVoice()?.identifier
+        }
+    }
+
+    /// 日本語で最も高品質な音声を返す（Premium > Enhanced > Default）。
+    private func bestJapaneseVoice() -> AVSpeechSynthesisVoice? {
+        availableVoices
+            .filter { $0.language.hasPrefix("ja") }
+            .max(by: { $0.quality.rawValue < $1.quality.rawValue })
+    }
+
+    /// 再生中に音声を切り替えたとき、現在位置で読み直して新しい音声を反映する。
+    func applyVoiceChange() {
+        if isPlaying {
+            seek(toFraction: progress)
+        }
+    }
+
+    /// 現在選択中の音声（なければ日本語の既定音声）。
+    private var currentVoice: AVSpeechSynthesisVoice? {
+        if let id = selectedVoiceIdentifier,
+           let voice = AVSpeechSynthesisVoice(identifier: id) {
+            return voice
+        }
+        return AVSpeechSynthesisVoice(language: "ja-JP")
     }
 
     // MARK: - テキスト読み込み
@@ -174,7 +223,7 @@ final class SpeechManager: NSObject, ObservableObject {
 
         // 空文字だと発話が完了しないことがあるので半角スペースで代替。
         let utterance = AVSpeechUtterance(string: sub.isEmpty ? " " : sub)
-        utterance.voice = AVSpeechSynthesisVoice(language: "ja-JP")
+        utterance.voice = currentVoice
         utterance.rate = rate
         synthesizer.speak(utterance)
     }

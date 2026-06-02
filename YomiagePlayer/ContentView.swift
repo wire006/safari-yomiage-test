@@ -1,4 +1,5 @@
 import SwiftUI
+import AVFoundation
 
 struct ContentView: View {
     @EnvironmentObject private var speech: SpeechManager
@@ -91,6 +92,28 @@ struct ContentView: View {
                 }
                 .foregroundStyle(.secondary)
 
+                // 音声（ボイス）選択
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("音声")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Picker("音声", selection: $speech.selectedVoiceIdentifier) {
+                            ForEach(speech.availableVoices, id: \.identifier) { voice in
+                                Text(voiceLabel(voice)).tag(Optional(voice.identifier))
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .onChange(of: speech.selectedVoiceIdentifier) { _ in
+                            speech.applyVoiceChange()
+                        }
+                    }
+                    Text("Safariと同じ音声にするには、設定 > アクセシビリティ > 読み上げコンテンツ > 声 で使っている音声をダウンロードしてから、ここで同じ音声を選んでください。")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+
                 Spacer()
             }
             .padding()
@@ -104,6 +127,17 @@ struct ContentView: View {
                 if !isEditingSlider { sliderValue = p }
             }
         }
+    }
+
+    /// 音声の表示名（名前・言語・品質）。
+    private func voiceLabel(_ voice: AVSpeechSynthesisVoice) -> String {
+        let quality: String
+        switch voice.quality {
+        case .premium:  quality = "プレミアム"
+        case .enhanced: quality = "高品質"
+        default:        quality = "標準"
+        }
+        return "\(voice.name)（\(voice.language)・\(quality)）"
     }
 
     private func timeString(_ seconds: Double) -> String {
