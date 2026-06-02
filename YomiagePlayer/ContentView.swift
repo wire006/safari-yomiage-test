@@ -1,5 +1,7 @@
 import SwiftUI
+import UIKit
 import AVFoundation
+import UniformTypeIdentifiers
 
 struct ContentView: View {
     @EnvironmentObject private var speech: SpeechManager
@@ -13,6 +15,8 @@ struct ContentView: View {
     // スライダーをユーザーが操作している間は、再生側の進捗で値を上書きしない。
     @State private var isEditingSlider = false
     @State private var sliderValue: Double = 0
+    // ファイル取り込み（書類ピッカー）の表示状態。
+    @State private var showingImporter = false
 
     var body: some View {
         NavigationStack {
@@ -35,6 +39,34 @@ struct ContentView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
+
+                // テキストの取り込み（A: クリップボード / C: ファイル）
+                HStack(spacing: 12) {
+                    Button {
+                        pasteFromClipboard()
+                    } label: {
+                        Label("ペーストして読み込む", systemImage: "doc.on.clipboard")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button {
+                        showingImporter = true
+                    } label: {
+                        Label("ファイルから読み込む", systemImage: "folder")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                }
+                .fileImporter(
+                    isPresented: $showingImporter,
+                    allowedContentTypes: [.plainText, .text, .utf8PlainText, .rtf],
+                    allowsMultipleSelection: false
+                ) { result in
+                    if case .success(let urls) = result, let url = urls.first {
+                        loadFromFile(url)
+                    }
+                }
 
                 // シークバー
                 VStack(spacing: 4) {
@@ -132,6 +164,39 @@ struct ContentView: View {
                 if !isEditingSlider { sliderValue = p }
             }
         }
+    }
+
+    /// A: クリップボードの文字列を読み込む。
+    private func pasteFromClipboard() {
+        guard let text = UIPasteboard.general.string, !text.isEmpty else { return }
+        inputText = text
+        speech.load(text: text)
+        sliderValue = 0
+    }
+
+    /// C: 選択したファイル（テキスト / RTF）を読み込む。
+    private func loadFromFile(_ url: URL) {
+        // 他アプリ由来のURLはセキュリティスコープのアクセス開始が必要。
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+
+        var text: String?
+        if let s = try? String(contentsOf: url, encoding: .utf8) {
+            text = s
+        } else if let data = try? Data(contentsOf: url),
+                  let attr = try? NSAttributedString(
+                      data: data,
+                      options: [.documentType: NSAttributedString.DocumentType.rtf],
+                      documentAttributes: nil) {
+            text = attr.string
+        } else {
+            text = try? String(contentsOf: url)   // エンコーディング自動判定で再試行
+        }
+
+        guard let loaded = text, !loaded.isEmpty else { return }
+        inputText = loaded
+        speech.load(text: loaded)
+        sliderValue = 0
     }
 
     /// 音声の表示名（名前・品質、Siri音声なら「Siri」表示）。
