@@ -20,8 +20,16 @@ final class SpeechManager: NSObject, ObservableObject {
     @Published private(set) var progress: Double = 0
     /// 現在読み上げ対象のテキスト。
     @Published private(set) var fullText: String = ""
+    /// 速度倍率を保存する UserDefaults キー。
+    private static let speedKey = "yomiage.speedMultiplier"
+
     /// ユーザー向けの読み上げ速度の倍率。1.0×＝標準（100%）。範囲は 0.5×〜1.5×。
-    @Published var speedMultiplier: Double = 1.0
+    /// 変更のたびに UserDefaults へ保存し、次回起動時に復元する。
+    @Published var speedMultiplier: Double {
+        didSet {
+            UserDefaults.standard.set(speedMultiplier, forKey: Self.speedKey)
+        }
+    }
 
     /// 実際に AVSpeechUtterance.rate へ渡す値。
     /// 標準(1.0×)で 0.5（＝AVSpeechUtteranceDefaultSpeechRate 相当）になるよう倍率を写像する。
@@ -68,6 +76,9 @@ final class SpeechManager: NSObject, ObservableObject {
     // MARK: - 初期化
 
     override init() {
+        // 保存済みの速度倍率を復元（無ければ 1.0×）。範囲外の値は丸める。
+        let saved = UserDefaults.standard.object(forKey: Self.speedKey) as? Double
+        speedMultiplier = saved.map { min(max($0, 0.5), 1.5) } ?? 1.0
         super.init()
         synthesizer.delegate = self
         configureAudioSession()
