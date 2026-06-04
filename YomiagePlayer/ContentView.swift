@@ -112,15 +112,17 @@ struct ContentView: View {
                 }
                 .padding(.top, 4)
 
-                // 速度調整
+                // 速度調整（0.5×〜1.5×、1.0×＝標準100%）
                 VStack(spacing: 4) {
                     HStack {
                         Image(systemName: "tortoise")
-                        Slider(value: $speech.rate,
-                               in: AVSpeechRateRange.min...AVSpeechRateRange.max)
+                        Slider(value: $speech.speedMultiplier, in: 0.5...1.5, step: 0.05)
+                            .onChange(of: speech.speedMultiplier) { _ in
+                                speech.applySpeedChange()
+                            }
                         Image(systemName: "hare")
                     }
-                    Text("読み上げ速度")
+                    Text(speedLabel)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -164,6 +166,12 @@ struct ContentView: View {
                 if !isEditingSlider { sliderValue = p }
             }
         }
+    }
+
+    /// 速度ラベル（倍率と、標準を100%とした目安の％）。
+    private var speedLabel: String {
+        let percent = Int((speech.speedMultiplier * 100).rounded())
+        return String(format: "読み上げ速度  %.2f×（約%d%%）", speech.speedMultiplier, percent)
     }
 
     /// A: クリップボードの文字列を読み込む。
@@ -212,12 +220,6 @@ struct ContentView: View {
         let total = Int(seconds.rounded())
         return String(format: "%d:%02d", total / 60, total % 60)
     }
-}
-
-/// AVSpeechUtterance.rate の有効範囲。
-enum AVSpeechRateRange {
-    static let min: Float = 0.0   // AVSpeechUtteranceMinimumSpeechRate
-    static let max: Float = 1.0   // AVSpeechUtteranceMaximumSpeechRate
 }
 
 #Preview {

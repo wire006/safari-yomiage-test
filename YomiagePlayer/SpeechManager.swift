@@ -20,8 +20,16 @@ final class SpeechManager: NSObject, ObservableObject {
     @Published private(set) var progress: Double = 0
     /// 現在読み上げ対象のテキスト。
     @Published private(set) var fullText: String = ""
-    /// 読み上げ速度（AVSpeechUtterance.rate と同じ 0.0〜1.0 のスケール）。
-    @Published var rate: Float = AVSpeechUtteranceDefaultSpeechRate
+    /// ユーザー向けの読み上げ速度の倍率。1.0×＝標準（100%）。範囲は 0.5×〜1.5×。
+    @Published var speedMultiplier: Double = 1.0
+
+    /// 実際に AVSpeechUtterance.rate へ渡す値。
+    /// 標準(1.0×)で 0.5（＝AVSpeechUtteranceDefaultSpeechRate 相当）になるよう倍率を写像する。
+    /// rate と発話速度の関係は非線形なので、％はあくまで目安。
+    private var utteranceRate: Float {
+        let raw = Float(0.5 * speedMultiplier)
+        return min(max(raw, AVSpeechUtteranceMinimumSpeechRate), AVSpeechUtteranceMaximumSpeechRate)
+    }
 
     /// 端末で利用できる音声の一覧（日本語・高品質を優先して並べ替え済み）。
     @Published private(set) var availableVoices: [AVSpeechSynthesisVoice] = []
@@ -93,6 +101,13 @@ final class SpeechManager: NSObject, ObservableObject {
 
     /// 再生中に音声を切り替えたとき、現在位置で読み直して新しい音声を反映する。
     func applyVoiceChange() {
+        if isPlaying {
+            seek(toFraction: progress)
+        }
+    }
+
+    /// 再生中に速度を変えたとき、現在位置で読み直して新しい速度を反映する。
+    func applySpeedChange() {
         if isPlaying {
             seek(toFraction: progress)
         }
@@ -221,7 +236,7 @@ final class SpeechManager: NSObject, ObservableObject {
         // 空文字だと発話が完了しないことがあるので半角スペースで代替。
         let utterance = AVSpeechUtterance(string: sub.isEmpty ? " " : sub)
         utterance.voice = currentVoice
-        utterance.rate = rate
+        utterance.rate = utteranceRate
         synthesizer.speak(utterance)
     }
 
