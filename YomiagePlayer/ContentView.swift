@@ -116,7 +116,7 @@ struct ContentView: View {
                 VStack(spacing: 4) {
                     HStack {
                         Image(systemName: "tortoise")
-                        Slider(value: $speech.speedMultiplier, in: 1.0...1.4, step: 0.02)
+                        Slider(value: $speech.speedMultiplier, in: 1.0...1.4, step: 0.01)
                             .onChange(of: speech.speedMultiplier) { _ in
                                 speech.applySpeedChange()
                             }
