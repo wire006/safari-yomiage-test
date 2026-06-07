@@ -112,11 +112,11 @@ struct ContentView: View {
                 }
                 .padding(.top, 4)
 
-                // 速度調整（0.5×〜1.5×、1.0×＝標準100%）
+                // 速度調整（1.0×〜1.4×、1.0×＝標準100%）
                 VStack(spacing: 4) {
                     HStack {
                         Image(systemName: "tortoise")
-                        Slider(value: $speech.speedMultiplier, in: 0.5...1.5, step: 0.05)
+                        Slider(value: $speech.speedMultiplier, in: 1.0...1.4, step: 0.05)
                             .onChange(of: speech.speedMultiplier) { _ in
                                 speech.applySpeedChange()
                             }

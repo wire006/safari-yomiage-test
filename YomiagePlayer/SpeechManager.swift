@@ -23,7 +23,7 @@ final class SpeechManager: NSObject, ObservableObject {
     /// 速度倍率を保存する UserDefaults キー。
     private static let speedKey = "yomiage.speedMultiplier"
 
-    /// ユーザー向けの読み上げ速度の倍率。1.0×＝標準（100%）。範囲は 0.5×〜1.5×。
+    /// ユーザー向けの読み上げ速度の倍率。1.0×＝標準（100%）。範囲は 1.0×〜1.4×。
     /// 変更のたびに UserDefaults へ保存し、次回起動時に復元する。
     @Published var speedMultiplier: Double {
         didSet {
@@ -78,7 +78,7 @@ final class SpeechManager: NSObject, ObservableObject {
     override init() {
         // 保存済みの速度倍率を復元（無ければ 1.0×）。範囲外の値は丸める。
         let saved = UserDefaults.standard.object(forKey: Self.speedKey) as? Double
-        speedMultiplier = saved.map { min(max($0, 0.5), 1.5) } ?? 1.0
+        speedMultiplier = saved.map { min(max($0, 1.0), 1.4) } ?? 1.0
         super.init()
         synthesizer.delegate = self
         configureAudioSession()
