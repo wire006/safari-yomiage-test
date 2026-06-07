@@ -132,7 +132,7 @@ struct ContentView: View {
                 VStack(spacing: 4) {
                     HStack {
                         Image(systemName: "minus")
-                        Slider(value: $speech.pauseScale, in: 0.0...2.0, step: 0.1)
+                        Slider(value: $speech.pauseScale, in: 0.0...2.0, step: 0.05)
                         Image(systemName: "plus")
                     }
                     Text(pauseLabel)
