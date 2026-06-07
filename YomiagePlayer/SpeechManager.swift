@@ -22,12 +22,22 @@ final class SpeechManager: NSObject, ObservableObject {
     @Published private(set) var fullText: String = ""
     /// 速度倍率を保存する UserDefaults キー。
     private static let speedKey = "yomiage.speedMultiplier"
+    /// 間の長さを保存する UserDefaults キー。
+    private static let pauseKey = "yomiage.pauseScale"
 
     /// ユーザー向けの読み上げ速度の倍率。1.0×＝標準（100%）。範囲は 1.0×〜1.4×。
     /// 変更のたびに UserDefaults へ保存し、次回起動時に復元する。
     @Published var speedMultiplier: Double {
         didSet {
             UserDefaults.standard.set(speedMultiplier, forKey: Self.speedKey)
+        }
+    }
+
+    /// 文末・段落の「間」の長さ倍率。1.0＝標準、0.0＝間なし。範囲は 0.0〜2.0。
+    /// 変更のたびに UserDefaults へ保存し、次回起動時に復元する。
+    @Published var pauseScale: Double {
+        didSet {
+            UserDefaults.standard.set(pauseScale, forKey: Self.pauseKey)
         }
     }
 
@@ -79,6 +89,9 @@ final class SpeechManager: NSObject, ObservableObject {
         // 保存済みの速度倍率を復元（無ければ 1.0×）。範囲外の値は丸める。
         let saved = UserDefaults.standard.object(forKey: Self.speedKey) as? Double
         speedMultiplier = saved.map { min(max($0, 1.0), 1.4) } ?? 1.0
+        // 保存済みの間の長さを復元（無ければ 1.0）。範囲外の値は丸める。
+        let savedPause = UserDefaults.standard.object(forKey: Self.pauseKey) as? Double
+        pauseScale = savedPause.map { min(max($0, 0.0), 2.0) } ?? 1.0
         super.init()
         synthesizer.delegate = self
         configureAudioSession()
@@ -248,7 +261,17 @@ final class SpeechManager: NSObject, ObservableObject {
         let utterance = AVSpeechUtterance(string: sub.isEmpty ? " " : sub)
         utterance.voice = currentVoice
         utterance.rate = utteranceRate
+        // 文末・段落の後に「間」を入れて自然にする。
+        utterance.postUtteranceDelay = basePause(for: sentences[index]) * pauseScale
         synthesizer.speak(utterance)
+    }
+
+    /// 文の終わり方に応じた標準の「間」（秒）。pauseScale を掛けて使う。
+    private func basePause(for sentence: String) -> Double {
+        guard let last = sentence.last else { return 0 }
+        if last == "\n" { return 0.6 }                 // 段落（改行）は長めに
+        if "。！？!?．.".contains(last) { return 0.35 } // 句点・文末
+        return 0                                       // 区切りで終わらない（最終文など）
     }
 
     private func finishPlayback() {

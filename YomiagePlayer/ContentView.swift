@@ -128,6 +128,19 @@ struct ContentView: View {
                 }
                 .foregroundStyle(.secondary)
 
+                // 間（文末・段落の無音）の長さ（0.0〜2.0、1.0＝標準）
+                VStack(spacing: 4) {
+                    HStack {
+                        Image(systemName: "minus")
+                        Slider(value: $speech.pauseScale, in: 0.0...2.0, step: 0.1)
+                        Image(systemName: "plus")
+                    }
+                    Text(pauseLabel)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .foregroundStyle(.secondary)
+
                 // 音声（ボイス）選択
                 VStack(alignment: .leading, spacing: 6) {
                     HStack {
@@ -172,6 +185,14 @@ struct ContentView: View {
     private var speedLabel: String {
         let percent = Int((speech.speedMultiplier * 100).rounded())
         return String(format: "読み上げ速度  %.2f×（約%d%%）", speech.speedMultiplier, percent)
+    }
+
+    /// 間の長さラベル。0 のときは「なし」。
+    private var pauseLabel: String {
+        if speech.pauseScale <= 0.001 {
+            return "文末の間  なし"
+        }
+        return String(format: "文末の間  %.1f×", speech.pauseScale)
     }
 
     /// A: クリップボードの文字列を読み込む。
