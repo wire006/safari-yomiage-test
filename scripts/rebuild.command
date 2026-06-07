@@ -13,7 +13,7 @@
 #
 # 前提: Xcode 15 以降（xcrun devicectl を使用）
 # ------------------------------------------------------------
-set -uo pipefail
+set -o pipefail
 
 # ===== 設定（必要に応じて書き換え）=========================
 PROJECT_DIR="/Users/user/safari-yomiage-test"   # リポジトリの場所
