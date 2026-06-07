@@ -192,7 +192,7 @@ struct ContentView: View {
         if speech.pauseScale <= 0.001 {
             return "文末の間  なし"
         }
-        return String(format: "文末の間  %.1f×", speech.pauseScale)
+        return String(format: "文末の間  %.2f×", speech.pauseScale)
     }
 
     /// A: クリップボードの文字列を読み込む。
