@@ -56,7 +56,8 @@ final class SpeechManager: NSObject, ObservableObject {
 
     // MARK: - 内部状態
 
-    private let synthesizer = AVSpeechSynthesizer()
+    /// 読み上げ用シンセサイザー。シーク等のときは作り直して状態をクリーンに保つ。
+    private var synthesizer = AVSpeechSynthesizer()
 
     /// 文（区切り文字を含む）の配列。連結すると元テキストと一致する。
     private var sentences: [String] = []
@@ -71,9 +72,6 @@ final class SpeechManager: NSObject, ObservableObject {
     private var currentUtteranceBaseOffset = 0
     /// これまでに読み上げた位置（テキスト全体での UTF-16 オフセット）。
     private var spokenGlobalOffset = 0
-    /// stop 後の処理を決める保留値。
-    /// nil = 保留なし（自然終了として次の文へ）, -1 = 停止のみ, 0以上 = その位置から再開。
-    private var pendingRestartOffset: Int?
 
     /// 1文字あたりの想定秒数。Now Playing の擬似的な総時間・経過時間に使う。
     private let secondsPerChar: Double = 0.13
@@ -150,13 +148,8 @@ final class SpeechManager: NSObject, ObservableObject {
 
     /// 読み上げるテキストを設定する。
     func load(text: String) {
-        // 進行中の読み上げがあれば止める。
-        pendingRestartOffset = nil
-        if synthesizer.isSpeaking || synthesizer.isPaused {
-            // 停止コールバックで次の文へ進んでしまわないよう「停止のみ」を指示。
-            pendingRestartOffset = -1
-            synthesizer.stopSpeaking(at: .immediate)
-        }
+        // 進行中の読み上げがあれば、シンセサイザーごと作り直して止める。
+        resetSynthesizer()
 
         fullText = text
         sentences = Self.splitIntoSentences(text)
@@ -211,19 +204,20 @@ final class SpeechManager: NSObject, ObservableObject {
         let clamped = min(max(fraction, 0), 1)
         let target = Int((clamped * Double(totalChars)).rounded())
 
+        let shouldResume = isPlaying
+
+        // 現在の読み上げを確実に止めるため、シンセサイザーを作り直す。
+        // （stop→即再生はシンセが固まることがあるため、毎回クリーンな状態にする）
+        resetSynthesizer()
+
         spokenGlobalOffset = target
         progress = clamped
 
-        let shouldResume = isPlaying
-        if synthesizer.isSpeaking || synthesizer.isPaused {
-            // stop は非同期に didCancel または didFinish を呼ぶ。
-            // どちらが呼ばれても確実にシーク先から再開できるよう保留値で制御する。
-            pendingRestartOffset = shouldResume ? target : -1
-            synthesizer.stopSpeaking(at: .immediate)
-        } else if shouldResume {
+        if shouldResume {
             beginSpeaking(fromGlobalOffset: target)
+        } else {
+            updateNowPlaying()
         }
-        updateNowPlaying()
     }
 
     /// 秒数ぶんスキップ（ロック画面の早送り/巻き戻し用）。
@@ -235,8 +229,18 @@ final class SpeechManager: NSObject, ObservableObject {
 
     // MARK: - 内部: 発話の開始
 
+    /// シンセサイザーを作り直して、確実に停止＆クリーンな状態にする。
+    /// 古いインスタンスはデリゲートを外して破棄するので、遅れて届くコールバックの影響を受けない。
+    private func resetSynthesizer() {
+        synthesizer.delegate = nil
+        synthesizer.stopSpeaking(at: .immediate)
+        synthesizer = AVSpeechSynthesizer()
+        synthesizer.delegate = self
+    }
+
     private func beginSpeaking(fromGlobalOffset offset: Int) {
         guard totalChars > 0 else { return }
+        try? AVAudioSession.sharedInstance().setActive(true)
         let clamped = min(max(offset, 0), totalChars)
         let idx = sentenceIndex(forGlobalOffset: clamped)
         currentSentenceIndex = idx
@@ -389,12 +393,11 @@ extension SpeechManager: AVSpeechSynthesizerDelegate {
         updateNowPlaying()
     }
 
-    /// 発話が終了したとき（自然終了）に呼ばれる。
-    /// stop による中断でも環境によってはこちらが呼ばれるため、保留値を最優先で処理する。
+    /// 1文を読み終えたとき（自然終了）に呼ばれる。次の文へ進む。
+    /// シーク・読み込み時は古いシンセサイザーのデリゲートを外してあるため、
+    /// 中断由来の通知がここへ届くことはなく、誤って次の文へ進む心配はない。
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,
                            didFinish utterance: AVSpeechUtterance) {
-        if consumePendingRestart() { return }
-        // 自然終了 → 次の文へ。
         let next = currentSentenceIndex + 1
         if next < sentences.count {
             currentSentenceIndex = next
@@ -402,25 +405,5 @@ extension SpeechManager: AVSpeechSynthesizerDelegate {
         } else {
             finishPlayback()
         }
-    }
-
-    /// stop（シーク・読み込み直し）でキャンセルされたとき。
-    func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,
-                           didCancel utterance: AVSpeechUtterance) {
-        consumePendingRestart()
-    }
-
-    /// 保留中の停止／再開要求を処理する。処理したら true を返す。
-    /// stopSpeaking 直後に speak すると無視されることがあるため、次のループで再開する。
-    @discardableResult
-    private func consumePendingRestart() -> Bool {
-        guard let pending = pendingRestartOffset else { return false }
-        pendingRestartOffset = nil
-        if pending >= 0 {
-            DispatchQueue.main.async { [weak self] in
-                self?.beginSpeaking(fromGlobalOffset: pending)
-            }
-        }
-        return true
     }
 }
