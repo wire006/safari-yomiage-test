@@ -261,8 +261,10 @@ final class SpeechManager: NSObject, ObservableObject {
 
         currentUtteranceBaseOffset = startOffsets[index] + safeLocal
 
-        // 空文字だと発話が完了しないことがあるので半角スペースで代替。
-        let utterance = AVSpeechUtterance(string: sub.isEmpty ? " " : sub)
+        // 記号や空白だけの断片は無音にする（「！」を“感嘆符”と読まないための保険）。
+        // 文字（かな・漢字・英数字）を含むものだけ読み上げる。
+        let speakable = !sub.isEmpty && sub.rangeOfCharacter(from: .alphanumerics) != nil
+        let utterance = AVSpeechUtterance(string: speakable ? sub : " ")
         utterance.voice = currentVoice
         utterance.rate = utteranceRate
         // 文末・段落の後に「間」を入れて自然にする。
@@ -364,13 +366,20 @@ final class SpeechManager: NSObject, ObservableObject {
     /// テキストを文（区切り文字を含む）に分割する。連結すると元テキストに一致する。
     static func splitIntoSentences(_ text: String) -> [String] {
         let delimiters: Set<Character> = ["。", "！", "？", "!", "?", "\n", "．", "."]
+        let chars = Array(text)
         var result: [String] = []
         var current = ""
-        for ch in text {
+        for (i, ch) in chars.enumerated() {
             current.append(ch)
             if delimiters.contains(ch) {
-                result.append(current)
-                current = ""
+                // 「！？」など区切りが連続する場合は同じ文にまとめる。
+                // こうしないと記号だけが単独の文になり、「感嘆符」「疑問符」と
+                // 記号名で読み上げられてしまう。
+                let nextIsDelimiter = i + 1 < chars.count && delimiters.contains(chars[i + 1])
+                if !nextIsDelimiter {
+                    result.append(current)
+                    current = ""
+                }
             }
         }
         if !current.isEmpty { result.append(current) }
