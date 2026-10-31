@@ -336,7 +336,7 @@ final class SpeechManager: NSObject, ObservableObject {
     /// 文の終わり方に応じた標準の「間」（秒）。pauseScale を掛けて使う。
     private func basePause(for sentence: String) -> Double {
         guard let last = sentence.last else { return 0 }
-        if last == "\n" { return 0.02 }                // 段落（改行）は文末の2倍
+        if last == "\n" { return 0.015 }               // 段落（改行）
         if "。！？!?．.".contains(last) { return 0.01 }  // 句点・文末
         return 0                                       // 区切りで終わらない（最終文など）
     }
