@@ -128,11 +128,11 @@ struct ContentView: View {
                 }
                 .foregroundStyle(.secondary)
 
-                // 間（文末・段落の無音）の長さ（0.0〜20.0、1.0＝標準）
+                // 間（文末・段落の無音）の長さ（0.0〜40.0、1.0＝標準）
                 VStack(spacing: 4) {
                     HStack {
                         Image(systemName: "minus")
-                        Slider(value: $speech.pauseScale, in: 0.0...20.0, step: 0.1)
+                        Slider(value: $speech.pauseScale, in: 0.0...40.0, step: 0.1)
                         Image(systemName: "plus")
                     }
                     Text(pauseLabel)

@@ -33,7 +33,7 @@ final class SpeechManager: NSObject, ObservableObject {
         }
     }
 
-    /// 文末・段落の「間」の長さ倍率。1.0＝標準、0.0＝間なし。範囲は 0.0〜20.0。
+    /// 文末・段落の「間」の長さ倍率。1.0＝標準、0.0＝間なし。範囲は 0.0〜40.0。
     /// 変更のたびに UserDefaults へ保存し、次回起動時に復元する。
     @Published var pauseScale: Double {
         didSet {
@@ -89,7 +89,7 @@ final class SpeechManager: NSObject, ObservableObject {
         speedMultiplier = saved.map { min(max($0, 1.0), 2.0) } ?? 1.0
         // 保存済みの間の長さを復元（無ければ 1.0）。範囲外の値は丸める。
         let savedPause = UserDefaults.standard.object(forKey: Self.pauseKey) as? Double
-        pauseScale = savedPause.map { min(max($0, 0.0), 20.0) } ?? 1.0
+        pauseScale = savedPause.map { min(max($0, 0.0), 40.0) } ?? 1.0
         super.init()
         synthesizer.delegate = self
         configureAudioSession()
@@ -275,8 +275,8 @@ final class SpeechManager: NSObject, ObservableObject {
     /// 文の終わり方に応じた標準の「間」（秒）。pauseScale を掛けて使う。
     private func basePause(for sentence: String) -> Double {
         guard let last = sentence.last else { return 0 }
-        if last == "\n" { return 0.01 }                // 段落（改行）は長めに
-        if "。！？!?．.".contains(last) { return 0.005 } // 句点・文末
+        if last == "\n" { return 0.02 }                // 段落（改行）は文末の2倍
+        if "。！？!?．.".contains(last) { return 0.01 }  // 句点・文末
         return 0                                       // 区切りで終わらない（最終文など）
     }
 
