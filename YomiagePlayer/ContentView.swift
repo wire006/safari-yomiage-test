@@ -112,11 +112,11 @@ struct ContentView: View {
                 }
                 .padding(.top, 4)
 
-                // 速度調整（1.0×〜1.4×、1.0×＝標準100%）
+                // 速度調整（1.0×〜2.0×、1.0×＝標準100%）
                 VStack(spacing: 4) {
                     HStack {
                         Image(systemName: "tortoise")
-                        Slider(value: $speech.speedMultiplier, in: 1.0...1.4, step: 0.01)
+                        Slider(value: $speech.speedMultiplier, in: 1.0...2.0, step: 0.01)
                             .onChange(of: speech.speedMultiplier) { _ in
                                 speech.applySpeedChange()
                             }
@@ -128,11 +128,11 @@ struct ContentView: View {
                 }
                 .foregroundStyle(.secondary)
 
-                // 間（文末・段落の無音）の長さ（0.0〜2.0、1.0＝標準）
+                // 間（文末・段落の無音）の長さ（0.0〜20.0、1.0＝標準）
                 VStack(spacing: 4) {
                     HStack {
                         Image(systemName: "minus")
-                        Slider(value: $speech.pauseScale, in: 0.0...2.0, step: 0.05)
+                        Slider(value: $speech.pauseScale, in: 0.0...20.0, step: 0.1)
                         Image(systemName: "plus")
                     }
                     Text(pauseLabel)

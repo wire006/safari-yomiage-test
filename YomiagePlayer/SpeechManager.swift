@@ -25,7 +25,7 @@ final class SpeechManager: NSObject, ObservableObject {
     /// 間の長さを保存する UserDefaults キー。
     private static let pauseKey = "yomiage.pauseScale"
 
-    /// ユーザー向けの読み上げ速度の倍率。1.0×＝標準（100%）。範囲は 1.0×〜1.4×。
+    /// ユーザー向けの読み上げ速度の倍率。1.0×＝標準（100%）。範囲は 1.0×〜2.0×。
     /// 変更のたびに UserDefaults へ保存し、次回起動時に復元する。
     @Published var speedMultiplier: Double {
         didSet {
@@ -33,7 +33,7 @@ final class SpeechManager: NSObject, ObservableObject {
         }
     }
 
-    /// 文末・段落の「間」の長さ倍率。1.0＝標準、0.0＝間なし。範囲は 0.0〜2.0。
+    /// 文末・段落の「間」の長さ倍率。1.0＝標準、0.0＝間なし。範囲は 0.0〜20.0。
     /// 変更のたびに UserDefaults へ保存し、次回起動時に復元する。
     @Published var pauseScale: Double {
         didSet {
@@ -86,10 +86,10 @@ final class SpeechManager: NSObject, ObservableObject {
     override init() {
         // 保存済みの速度倍率を復元（無ければ 1.0×）。範囲外の値は丸める。
         let saved = UserDefaults.standard.object(forKey: Self.speedKey) as? Double
-        speedMultiplier = saved.map { min(max($0, 1.0), 1.4) } ?? 1.0
+        speedMultiplier = saved.map { min(max($0, 1.0), 2.0) } ?? 1.0
         // 保存済みの間の長さを復元（無ければ 1.0）。範囲外の値は丸める。
         let savedPause = UserDefaults.standard.object(forKey: Self.pauseKey) as? Double
-        pauseScale = savedPause.map { min(max($0, 0.0), 2.0) } ?? 1.0
+        pauseScale = savedPause.map { min(max($0, 0.0), 20.0) } ?? 1.0
         super.init()
         synthesizer.delegate = self
         configureAudioSession()

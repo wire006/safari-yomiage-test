@@ -35,15 +35,96 @@ enum DocumentTextExtractor {
 
     // MARK: - PDF
 
+    /// PDF の1行分の情報。
+    private struct PDFLine {
+        let text: String      // 行末の空白を除いた行テキスト
+        let width: Double     // 表示幅（全角=1, 半角=0.5）
+        let typical: Double   // そのページの「満杯の行」の目安幅
+    }
+
     private static func textFromPDF(_ url: URL) -> String? {
         guard let doc = PDFDocument(url: url) else { return nil }
-        var parts: [String] = []
+        var lines: [PDFLine] = []
         for i in 0..<doc.pageCount {
-            if let page = doc.page(at: i), let s = page.string {
-                parts.append(s)
+            guard let raw = doc.page(at: i)?.string else { continue }
+            // 改行コードを統一し、ページ末尾の空行は除く（ページをまたぐ文をつなぐため）。
+            let normalized = raw
+                .replacingOccurrences(of: "\r\n", with: "\n")
+                .replacingOccurrences(of: "\r", with: "\n")
+            let pageLines = trimTrailing(normalized).components(separatedBy: "\n").map(trimTrailing)
+
+            // ページ内の行幅の上位10%付近を「満杯の行」の幅とみなす。
+            let widths = pageLines.filter { !$0.isEmpty }.map(displayWidth).sorted()
+            let typical = widths.isEmpty ? 0 : widths[min(widths.count - 1, Int(Double(widths.count) * 0.9))]
+
+            lines += pageLines.map { PDFLine(text: $0, width: displayWidth($0), typical: typical) }
+        }
+        return nonEmpty(unwrapLines(lines))
+    }
+
+    /// PDF の「見た目の折り返し」による改行を取り除き、本来の段落・会話の区切りだけを残す。
+    ///
+    /// 改行を残す条件:
+    ///  - 空行の前後
+    ///  - 次の行が全角スペースで字下げされている（新しい段落）
+    ///  - 行末が 。！？」』 など（文・会話の終わり）
+    ///  - 行がページの満杯幅より明らかに短い（段落の終わり）
+    /// ただし「 」が閉じていない間は会話の途中なので、必ず次の行とつなぐ。
+    private static func unwrapLines(_ lines: [PDFLine]) -> String {
+        let terminators: Set<Character> = ["。", "．", "！", "？", "!", "?", "」", "』", "】"]
+        var out = ""
+        var quoteDepth = 0
+        for (i, line) in lines.enumerated() {
+            out += line.text
+            let current = line.text.trimmingCharacters(in: .whitespaces)
+            if current.isEmpty { quoteDepth = 0 }
+            let opens = line.text.filter { $0 == "「" || $0 == "『" }.count
+            let closes = line.text.filter { $0 == "」" || $0 == "』" }.count
+            quoteDepth = max(0, quoteDepth + opens - closes)
+
+            guard i + 1 < lines.count else { break }
+            let nextText = lines[i + 1].text
+            let next = nextText.trimmingCharacters(in: .whitespaces)
+
+            let keepBreak: Bool
+            if current.isEmpty || next.isEmpty {
+                keepBreak = true
+            } else if nextText.hasPrefix("　") {
+                keepBreak = true
+            } else if quoteDepth > 0 {
+                keepBreak = false
+            } else if let last = current.last, terminators.contains(last) {
+                keepBreak = true
+            } else {
+                keepBreak = line.width < line.typical * 0.85
+            }
+
+            if keepBreak {
+                out += "\n"
+            } else if let a = current.last, let b = next.first, isASCIIWordChar(a), isASCIIWordChar(b) {
+                out += " "   // 英単語どうしが行をまたぐ場合だけ空白を補う
             }
         }
-        return nonEmpty(parts.joined(separator: "\n"))
+        return out
+    }
+
+    /// 表示幅（全角=1、半角英数・半角カナ=0.5）。
+    private static func displayWidth(_ s: String) -> Double {
+        s.unicodeScalars.reduce(0.0) { sum, u in
+            let v = u.value
+            return sum + ((v < 0x80 || (0xFF61...0xFF9F).contains(v)) ? 0.5 : 1.0)
+        }
+    }
+
+    private static func isASCIIWordChar(_ c: Character) -> Bool {
+        c.isASCII && (c.isLetter || c.isNumber)
+    }
+
+    /// 末尾の空白・改行だけを取り除く（行頭の字下げは残す）。
+    private static func trimTrailing(_ s: String) -> String {
+        var t = Substring(s)
+        while let last = t.last, last.isWhitespace { t = t.dropLast() }
+        return String(t)
     }
 
     // MARK: - DOCX
