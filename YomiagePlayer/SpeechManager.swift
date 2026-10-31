@@ -72,15 +72,22 @@ final class SpeechManager: NSObject, ObservableObject {
     private var spokenGlobalOffset = 0
 
     /// キューに入れた発話ごとの情報（どの文か・全体の何文字目から始まるか）。
-    /// 次の文を先読みでキューに入れるため、発話単位で位置を管理する。
     private struct QueuedUtterance {
         let utterance: AVSpeechUtterance
         let sentenceIndex: Int
         let baseOffset: Int
     }
     private var queued: [ObjectIdentifier: QueuedUtterance] = [:]
-    /// 最後にキューへ入れた文のインデックス（-1 = まだ無い）。
-    private var lastEnqueuedIndex = -1
+
+    /// 文末の「間」を待ってから次の文を読み始めるための予約。
+    /// （iOS の postUtteranceDelay は実機で無視されることがあるため、間はアプリ側で作る）
+    private var pendingAdvance: DispatchWorkItem?
+
+    /// 再生中に無音を流し続けるためのエンジン。
+    /// 文と文の間（無音）の間もアプリがバックグラウンドで止められないようにする。
+    private let silenceEngine = AVAudioEngine()
+    private let silencePlayer = AVAudioPlayerNode()
+    private var silenceBuffer: AVAudioPCMBuffer?
 
     /// 1文字あたりの想定秒数。Now Playing の擬似的な総時間・経過時間に使う。
     private let secondsPerChar: Double = 0.13
@@ -173,6 +180,7 @@ final class SpeechManager: NSObject, ObservableObject {
 
         currentSentenceIndex = 0
         spokenGlobalOffset = 0
+        stopSilenceKeepAlive()
         isPlaying = false
         progress = 0
         updateNowPlaying()
@@ -190,6 +198,7 @@ final class SpeechManager: NSObject, ObservableObject {
 
         if synthesizer.isPaused {
             synthesizer.continueSpeaking()
+            startSilenceKeepAlive()
         } else if !synthesizer.isSpeaking {
             // 最後まで読み終わっている場合は先頭から。
             let from = spokenGlobalOffset >= totalChars ? 0 : spokenGlobalOffset
@@ -200,9 +209,11 @@ final class SpeechManager: NSObject, ObservableObject {
     }
 
     func pause() {
+        cancelPendingAdvance()   // 文と文の間（待ち時間中）に止めた場合も確実に止める
         if synthesizer.isSpeaking {
             synthesizer.pauseSpeaking(at: .word)
         }
+        stopSilenceKeepAlive()
         isPlaying = false
         updateNowPlaying()
     }
@@ -241,35 +252,64 @@ final class SpeechManager: NSObject, ObservableObject {
     /// シンセサイザーを作り直して、確実に停止＆クリーンな状態にする。
     /// 古いインスタンスはデリゲートを外して破棄するので、遅れて届くコールバックの影響を受けない。
     private func resetSynthesizer() {
+        cancelPendingAdvance()
         synthesizer.delegate = nil
         synthesizer.stopSpeaking(at: .immediate)
         synthesizer = AVSpeechSynthesizer()
         synthesizer.delegate = self
         queued.removeAll()
-        lastEnqueuedIndex = -1
     }
 
     private func beginSpeaking(fromGlobalOffset offset: Int) {
         guard totalChars > 0 else { return }
+        cancelPendingAdvance()
         try? AVAudioSession.sharedInstance().setActive(true)
+        startSilenceKeepAlive()
         let clamped = min(max(offset, 0), totalChars)
         let idx = sentenceIndex(forGlobalOffset: clamped)
         currentSentenceIndex = idx
         let local = clamped - startOffsets[idx]
         isPlaying = true
         enqueueSentence(idx, fromLocalOffset: local)
-        enqueueAhead(through: idx + 1)   // 次の文も先にキューへ（間を効かせるため）
         updateNowPlaying()
     }
 
-    /// 指定の文までキューに入れておく（常に1文先まで先読みする）。
-    ///
-    /// `postUtteranceDelay`（発話後の間）は「キューで待っている次の発話」との間にだけ
-    /// 入る仕様のため、読み終えてから次を入れる方式では間が効かない。
-    private func enqueueAhead(through index: Int) {
-        while lastEnqueuedIndex < index, lastEnqueuedIndex + 1 < sentences.count {
-            enqueueSentence(lastEnqueuedIndex + 1, fromLocalOffset: 0)
+    private func cancelPendingAdvance() {
+        pendingAdvance?.cancel()
+        pendingAdvance = nil
+    }
+
+    // MARK: - 無音の再生（バックグラウンドで止められないようにする）
+
+    private func startSilenceKeepAlive() {
+        if silenceBuffer == nil {
+            guard let format = AVAudioFormat(standardFormatWithSampleRate: 44_100, channels: 2),
+                  let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4_410) else { return }
+            buffer.frameLength = buffer.frameCapacity
+            // 0.1秒分の完全な無音データを用意する。
+            if let channels = buffer.floatChannelData {
+                for ch in 0..<Int(format.channelCount) {
+                    channels[ch].initialize(repeating: 0, count: Int(buffer.frameLength))
+                }
+            }
+            silenceEngine.attach(silencePlayer)
+            silenceEngine.connect(silencePlayer, to: silenceEngine.mainMixerNode, format: format)
+            silenceBuffer = buffer
         }
+        guard !silenceEngine.isRunning, let buffer = silenceBuffer else { return }
+        do {
+            try silenceEngine.start()
+        } catch {
+            return
+        }
+        silencePlayer.scheduleBuffer(buffer, at: nil, options: .loops)
+        silencePlayer.play()
+    }
+
+    private func stopSilenceKeepAlive() {
+        guard silenceBuffer != nil else { return }   // まだ一度も開始していない
+        silencePlayer.stop()
+        if silenceEngine.isRunning { silenceEngine.stop() }
     }
 
     private func enqueueSentence(_ index: Int, fromLocalOffset local: Int) {
@@ -284,14 +324,12 @@ final class SpeechManager: NSObject, ObservableObject {
         let utterance = AVSpeechUtterance(string: speakable ? sub : " ")
         utterance.voice = currentVoice
         utterance.rate = utteranceRate
-        // 文末・段落の後に「間」を入れて自然にする（次の発話がキューにあるときに効く）。
-        utterance.postUtteranceDelay = basePause(for: sentences[index]) * pauseScale
+        // 文末の「間」は didFinish 後にアプリ側で待つので、ここでは設定しない。
 
         queued[ObjectIdentifier(utterance)] = QueuedUtterance(
             utterance: utterance,
             sentenceIndex: index,
             baseOffset: startOffsets[index] + safeLocal)
-        lastEnqueuedIndex = index
         synthesizer.speak(utterance)
     }
 
@@ -304,6 +342,8 @@ final class SpeechManager: NSObject, ObservableObject {
     }
 
     private func finishPlayback() {
+        cancelPendingAdvance()
+        stopSilenceKeepAlive()
         isPlaying = false
         spokenGlobalOffset = totalChars
         progress = 1
@@ -414,12 +454,11 @@ final class SpeechManager: NSObject, ObservableObject {
 
 extension SpeechManager: AVSpeechSynthesizerDelegate {
 
-    /// 発話を読み始めたときに呼ばれる。現在の文を更新し、さらに1文先をキューへ入れる。
+    /// 発話を読み始めたときに呼ばれる。現在の文を更新する。
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,
                            didStart utterance: AVSpeechUtterance) {
         guard let info = queued[ObjectIdentifier(utterance)] else { return }
         currentSentenceIndex = info.sentenceIndex
-        enqueueAhead(through: info.sentenceIndex + 1)
     }
 
     /// 読み上げ位置が進むたびに呼ばれる。進捗の追従に使う。
@@ -434,18 +473,34 @@ extension SpeechManager: AVSpeechSynthesizerDelegate {
         updateNowPlaying()
     }
 
-    /// 1文を読み終えたときに呼ばれる。次の文は先読みでキュー済み。
-    /// 最後の文なら再生終了にする。
+    /// 1文を読み終えたときに呼ばれる。文末の「間」だけ待ってから次の文を読み始める。
     /// シーク・読み込み時は古いシンセサイザーのデリゲートを外してあるため、
     /// 中断由来の通知がここへ届くことはない。
     func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer,
                            didFinish utterance: AVSpeechUtterance) {
         guard let info = queued.removeValue(forKey: ObjectIdentifier(utterance)) else { return }
-        if info.sentenceIndex >= sentences.count - 1 {
+        let next = info.sentenceIndex + 1
+        guard next < sentences.count else {
             finishPlayback()
-        } else if lastEnqueuedIndex <= info.sentenceIndex {
-            // 念のため：先読みが入っていなければ次の文を入れる。
-            enqueueAhead(through: info.sentenceIndex + 1)
+            return
         }
+
+        // 位置を次の文の先頭に合わせる（間の途中で一時停止しても、次の文から再開できる）。
+        spokenGlobalOffset = startOffsets[next]
+        progress = totalChars > 0 ? Double(spokenGlobalOffset) / Double(totalChars) : 0
+        updateNowPlaying()
+
+        let delay = basePause(for: sentences[info.sentenceIndex]) * pauseScale
+        guard delay > 0 else {
+            enqueueSentence(next, fromLocalOffset: 0)
+            return
+        }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.isPlaying else { return }
+            self.pendingAdvance = nil
+            self.enqueueSentence(next, fromLocalOffset: 0)
+        }
+        pendingAdvance = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 }
